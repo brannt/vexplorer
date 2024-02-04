@@ -1,0 +1,6 @@
+numpy
+scipy
+faiss-cpu
+dash
+plotly
+dash-core-components

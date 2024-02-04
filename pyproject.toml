@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.poetry]
+name = "vexplorer"
+version = "0.1.0"
+description = "A prototype for visualizing and exploring vector document indexes"
+authors = ["brannt <brannt.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+numpy = "^1.26.3"
+scipy = "^1.12.0"
+faiss-cpu = "^1.7.4"
+dash = "^2.15.0"
+plotly = "^5.18.0"
+dash-core-components = "^2.0.0"
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.29.0"
+
