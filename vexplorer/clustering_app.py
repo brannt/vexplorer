@@ -8,6 +8,8 @@ import numpy as np
 import plotly.graph_objs as go
 from dash import Input, Output, State, dcc, html
 from scipy.cluster.vq import kmeans, vq
+from sklearn.decomposition import NMF, PCA
+from sklearn.manifold import MDS, TSNE
 
 external_stylesheets = ["https://codepen.io/chriddyp/pen/bWLwgP.css"]
 
@@ -69,68 +71,114 @@ class ClusteredIndex:
         return self._cluster_labels
 
 
-# Function to find the top-3 closest chunks to a centroid
-def find_closest_chunks(centroid, index, cluster_labels, cluster_id):
-    cluster = index[cluster_labels == cluster_id]
-    distances = np.linalg.norm(cluster - centroid, axis=1)
-    closest_indices = np.argsort(distances)[:3]
-    return cluster[closest_indices]
+def reduce_to_3d(np_index, method):
+    if method == "tsne":
+        model = TSNE(n_components=3, perplexity=20)
+    elif method == "mds":
+        model = MDS(n_components=3, n_init=1, max_iter=100)
+    elif method == "pca":
+        model = PCA(n_components=3)
+    elif method == "nmf":
+        model = NMF(n_components=3)
+    else:
+        raise ValueError(f"Unrecognized method: {method}")
+    return model.fit_transform(np_index)
 
 
 def make_app(index_dir, num_clusters):
-    index_dir = Path(index_dir)
-    index = ClusteredIndex.from_index_dir(index_dir)
-    index.cluster(num_clusters)
+    index = None
 
     app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
-    index_3d = index.np_index
+
     app.layout = html.Div(
         [
-            dcc.Upload(
-                id="upload-index",
-                children=html.Button("Upload FAISS Index"),
-                multiple=False,
-                accept=".index",
+            html.H1("VExplorer"),
+            html.Div(
+                [
+                    dcc.Input(
+                        id="dirpath",
+                        type="text",
+                        placeholder="Select an index directory",
+                        value=index_dir or "",
+                        size="70",
+                    ),
+                    dcc.Input(
+                        id="num-clusters",
+                        type="number",
+                        placeholder="Number of clusters",
+                        value=num_clusters,
+                        size="1",
+                    ),
+                    dcc.Dropdown(
+                        id="reduce-method",
+                        options=[
+                            {"label": "TSNE", "value": "tsne"},
+                            {"label": "MDS", "value": "mds"},
+                            {"label": "PCA", "value": "pca"},
+                            {"label": "NMF", "value": "nmf"},
+                        ],
+                        value="tsne",
+                        clearable=False,
+                        style={
+                            "display": "inline-block",
+                            "vertical-align": "top",
+                            "width": "100px",
+                        },
+                    ),
+                ]
             ),
             dcc.Graph(
                 id="cluster-plot",
-                figure={
-                    "data": [
-                        go.Scatter3d(
-                            x=index_3d[:, 0],
-                            y=index_3d[:, 1],
-                            z=index_3d[:, 2],
-                            mode="markers",
-                            marker=dict(
-                                size=5,
-                                color=index.cluster_labels,
-                                colorscale="Viridis",
-                                opacity=0.8,
-                            ),
-                        )
-                    ],
-                    "layout": go.Layout(
-                        margin={"l": 0, "r": 0, "b": 0, "t": 0},
-                        scene={
-                            "xaxis": {"title": "X"},
-                            "yaxis": {"title": "Y"},
-                            "zaxis": {"title": "Z"},
-                        },
-                    ),
-                },
             ),
             html.Pre(id="click-data"),
         ]
     )
 
+    @app.callback(
+        Output("cluster-plot", "figure"),
+        [
+            Input("dirpath", "value"),
+            Input("num-clusters", "value"),
+            Input("reduce-method", "value"),
+        ],
+    )
+    def update_graph(dirpath, num_clusters, reduce_method="tsne"):
+        index_dir = Path(dirpath)
+        nonlocal index
+        index = ClusteredIndex.from_index_dir(index_dir)
+        index.cluster(num_clusters)
+        index_3d = reduce_to_3d(index.np_index, method=reduce_method)
+        return {
+            "data": [
+                go.Scatter3d(
+                    x=index_3d[:, 0],
+                    y=index_3d[:, 1],
+                    z=index_3d[:, 2],
+                    mode="markers",
+                    marker=dict(
+                        size=5,
+                        color=index.cluster_labels,
+                        colorscale="Viridis",
+                        opacity=0.8,
+                    ),
+                )
+            ],
+            "layout": go.Layout(
+                margin={"l": 0, "r": 0, "b": 0, "t": 0},
+                scene={
+                    "xaxis": {"title": "X"},
+                    "yaxis": {"title": "Y"},
+                    "zaxis": {"title": "Z"},
+                },
+            ),
+        }
+
     # Callback for handling clicks on the cluster plot
     @app.callback(
         Output("click-data", "children"),
         [Input("cluster-plot", "clickData")],
-        [State("upload-index", "contents")],
-        [State("upload-index", "filename")],
     )
-    def display_click_data(clickData, index_contents, index_filename):
+    def display_click_data(clickData):
         if clickData is None:
             return "Click on a cluster to see the top-3 closest chunks."
 
@@ -152,6 +200,9 @@ def make_app(index_dir, num_clusters):
 
 
 if __name__ == "__main__":
-    index_dir = sys.argv[1]
-    num_clusters = int(sys.argv[2])
+    try:
+        index_dir = sys.argv[1]
+        num_clusters = int(sys.argv[2])
+    except IndexError:
+        index_dir, num_clusters = None, 3
     make_app(index_dir, num_clusters).run_server(debug=True)

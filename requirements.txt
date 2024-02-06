@@ -4,3 +4,4 @@ faiss-cpu
 dash
 plotly
 dash-core-components
+scikit-learn
